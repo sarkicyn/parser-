@@ -1,0 +1,12 @@
+{
+  "remote_only": true,
+  "hours_min": 2,
+  "hours_max": 6,
+  "salary_min": 40000,
+  "fixed_salary_only": true,
+  "max_experience_years": 3,
+  "min_score": 60,
+  "include_unknown": true,
+  "keywords": [],
+  "exclude_keywords": []
+}

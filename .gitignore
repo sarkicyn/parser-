@@ -1,0 +1,16 @@
+.env
+.venv/
+.tmp/
+.reference/
+data/
+output/
+tmp/
+*.pdf
+/myResume
+/MyResumee
+__pycache__/
+*.py[cod]
+*.session*
+profile.json
+demo-results.json
+

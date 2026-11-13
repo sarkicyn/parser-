@@ -116,10 +116,6 @@ def classify_professional(text: str) -> ProfessionalMatch:
     rejected = ProfessionalMatch(False, None, facts, description)
     if not facts.is_vacancy or facts.remote is not True:
         return rejected
-    normalized = normalize(re.sub(r"[*_`]", "", text))
-    if has(r"(?:обучим|обучаем|обучение)\s+с\s+нуля|без\s+опыта\s+и\s+(?:навыков|знаний)|"
-           r"no skills? (?:or experience )?required", normalized):
-        return rejected
     title, duties = normalize(description.title), normalize(duty_text(text))
     # A role in requirements or the company description is not the advertised job.
     by_title = [group for group, rule in RULES.items() if has(rule.roles, title)]

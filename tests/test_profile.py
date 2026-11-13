@@ -18,7 +18,7 @@ class ProfileTests(unittest.TestCase):
                     path.write_text(json.dumps({"min_score": saved, "hours_max": 5}), encoding="utf-8")
                     profile = Profile.load(path)
                     self.assertEqual(profile.min_score, expected)
-                    self.assertEqual(profile.hours_max, 5)
+                    self.assertNotIn("hours_max", profile.__dict__)
 
     def test_old_salary_ceiling_is_removed_on_load_and_save(self):
         root = Path(__file__).resolve().parent.parent / ".tmp"
@@ -27,7 +27,7 @@ class ProfileTests(unittest.TestCase):
             path = Path(directory) / "profile.json"
             path.write_text(json.dumps({"salary_min": 40000, "salary_max": 60000}), encoding="utf-8")
             profile = Profile.load(path)
-            result = classify("Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 150 000 ₽. Без опыта.", profile)
+            result = classify("Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 150 000 ₽. Опыт 5 лет.", profile)
             self.assertTrue(result.eligible)
             self.assertEqual(result.score, 100)
             profile.save(path)

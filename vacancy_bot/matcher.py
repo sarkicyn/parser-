@@ -1,6 +1,8 @@
 """Conservative, local extraction. Missing facts never become confirmed facts."""
 from __future__ import annotations
 
+from .requirements import professional_evidence
+
 import re
 from dataclasses import asdict, dataclass, field
 
@@ -260,17 +262,8 @@ def classify(text: str, profile: Profile | None = None, *, facts: Facts | None =
             unknowns.append("Формат работы не указан")
     if not p.remote_only and f.remote is not True:
         score += 20
-    if f.hours_max is None:
-        score += 10
-        unknowns.append("Не указаны часы в день")
-    elif f.hours_max > p.hours_max:
-        reject.append(f"Занятость до {f.hours_max:g} ч/день, больше {p.hours_max:g}")
-    elif f.hours_max < p.hours_min:
-        score += 15
-        reasons.append(f"Занятость {f.hours_max:g} ч/день, меньше желаемой")
-    else:
-        score += 25
-        reasons.append(f"Занятость {f.hours_min:g}–{f.hours_max:g} ч/день")
+    # Hours are informational only; keep a neutral contribution for score compatibility.
+    score += 25
     salary_known = f.currency == "RUB" and f.salary_monthly and f.salary_min is not None
     if salary_known:
         if f.salary_min < p.salary_min:
@@ -286,16 +279,12 @@ def classify(text: str, profile: Profile | None = None, *, facts: Facts | None =
             reject.append("Нет фиксированного оклада")
         elif f.fixed is None:
             unknowns.append("Фиксированный оклад не подтверждён")
-    if f.experience_max is None:
-        score += 6
-        unknowns.append("Требуемый опыт не указан")
-    elif f.experience_max > p.max_experience_years or (
-        f.experience_max == p.max_experience_years and f.experience_exclusive
-    ):
-        reject.append(f"Требуется опыт: {f.evidence['experience']}")
-    else:
+    evidence = professional_evidence(text)
+    if evidence:
         score += 15
-        reasons.append("Без опыта" if f.experience_max == 0 else f"Опыт до {f.experience_max:g} лет")
+        reasons.append("Профессиональные требования: " + "; ".join(evidence))
+    else:
+        reject.append("Не найдены обязательные требования к опыту или конкретным профессиональным навыкам")
     if p.keywords:
         matching = [word for word in p.keywords if contains(t, word)]
         score = max(0, score - 5) + round(5 * len(matching) / len(p.keywords))

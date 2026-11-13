@@ -5,7 +5,7 @@ from vacancy_bot.matcher import classify, extract, split_post
 from vacancy_bot.profile import Profile, update_profile
 
 
-BASE = "Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 50 000 ₽ в месяц. Без опыта."
+BASE = "Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 50 000 ₽ в месяц. Опыт 2 года."
 
 
 class MatchingTests(unittest.TestCase):
@@ -15,36 +15,59 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(result.score, 100)
         self.assertEqual(result.unknowns, [])
 
-    def test_experience_rejections(self):
+    def test_professional_requirements_across_roles_and_training(self):
+        for requirement in ["Требования: Figma.", "Требуется опыт бухгалтерского учёта.",
+                            "Требования: знание PostgreSQL.",
+                            "Обучим с нуля. Требования: Python.",
+                            "Без опыта, но обязательно знание Python."]:
+            with self.subTest(requirement=requirement):
+                self.assertTrue(classify(BASE.replace("Опыт 2 года.", requirement)).eligible)
+        for requirement in ["Без опыта. Обучим с нуля.", "Требования: ответственность и общительность.",
+                            "Требования: Python будет плюсом.",
+                            "О компании: у компании опыт 10 лет на рынке.",
+                            "Условия: обучение Python."]:
+            with self.subTest(requirement=requirement):
+                self.assertFalse(classify(BASE.replace("Опыт 2 года.", requirement)).eligible)
+
+    def test_missing_salary_can_pass_but_is_marked_unknown(self):
+        result = classify(BASE.replace("Оклад 50 000 ₽ в месяц.", ""))
+        self.assertTrue(result.eligible)
+        self.assertIn("Нет гарантированной месячной суммы в рублях", result.unknowns)
+        self.assertFalse(classify(BASE.replace("Оклад 50 000 ₽ в месяц.", ""),
+                                  replace(Profile(), include_unknown=False)).eligible)
+
+    def test_experience_above_three_is_allowed(self):
         for experience in ["от 4 лет", "3–5 лет", "более 3 лет", "свыше трех лет",
                            "не менее 5 лет", "5+ years", "от 40 месяцев"]:
             with self.subTest(experience=experience):
-                result = classify(BASE.replace("Без опыта", "Опыт " + experience))
-                self.assertFalse(result.eligible, result.to_dict())
+                result = classify(BASE.replace("Опыт 2 года", "Опыт " + experience))
+                self.assertTrue(result.eligible, result.to_dict())
 
     def test_experience_allowed(self):
         for experience in ["от 1 до 3 лет", "2 года", "до 3 лет", "не более 3 лет", "6 месяцев"]:
             with self.subTest(experience=experience):
-                result = classify(BASE.replace("Без опыта", "Опыт " + experience))
+                result = classify(BASE.replace("Опыт 2 года", "Опыт " + experience))
                 self.assertTrue(result.eligible)
                 self.assertLessEqual(result.facts.experience_max, 3)
 
     def test_reversed_english_experience(self):
-        self.assertFalse(classify(BASE.replace("Без опыта", "5+ years of experience")).eligible)
+        self.assertTrue(classify(BASE.replace("Опыт 2 года", "5+ years of experience")).eligible)
 
     def test_company_age_is_not_required_experience(self):
-        result = classify(BASE.replace("Без опыта", "Без опыта, компания на рынке 5 лет"))
-        self.assertTrue(result.eligible, result.to_dict())
+        result = classify(BASE.replace("Опыт 2 года", "Без опыта, компания на рынке 5 лет"))
+        self.assertFalse(result.eligible, result.to_dict())
 
     def test_optional_experience_does_not_reject(self):
-        result = classify(BASE.replace("Без опыта", "Опыт 5 лет будет преимуществом"))
-        self.assertTrue(result.eligible)
+        result = classify(BASE.replace("Опыт 2 года", "Опыт 5 лет будет преимуществом"))
+        self.assertFalse(result.eligible)
         self.assertIsNone(result.facts.experience_max)
 
-    def test_overwork_rejected(self):
+    def test_hours_do_not_affect_eligibility_or_score(self):
         for hours in ["8 часов", "4–8 часов", "более 6 часов", "полный рабочий день"]:
             with self.subTest(hours=hours):
-                self.assertFalse(classify(BASE.replace("4 часа в день", hours)).eligible)
+                result = classify(BASE.replace("4 часа в день", hours))
+                self.assertTrue(result.eligible)
+                self.assertEqual(result.score, classify(BASE).score)
 
     def test_daily_hour_ranges(self):
         result = classify(BASE.replace("4 часа", "от 2 до 6 часов"))
@@ -52,7 +75,7 @@ class MatchingTests(unittest.TestCase):
 
     def test_clock_schedule(self):
         result = classify(BASE.replace("4 часа в день", "график с 10:00 до 18:00"))
-        self.assertFalse(result.eligible)
+        self.assertTrue(result.eligible)
 
     def test_weekly_hours_not_daily(self):
         result = extract(BASE.replace("4 часа в день", "20 часов в неделю"))
@@ -99,8 +122,7 @@ class MatchingTests(unittest.TestCase):
 
     def test_high_salary_does_not_override_other_conditions(self):
         high_salary = BASE.replace("50 000", "150 000")
-        for text in [high_salary.replace("4 часа", "8 часов"),
-                     high_salary.replace("Без опыта", "Опыт 5 лет"),
+        for text in [high_salary.replace("Опыт 2 года", "Без опыта"),
                      high_salary.replace("Удалённо", "Работа в офисе")]:
             with self.subTest(text=text):
                 self.assertFalse(classify(text).eligible)
@@ -130,34 +152,35 @@ class MatchingTests(unittest.TestCase):
         self.assertFalse(classify(BASE.replace("Вакансия: ассистент", "Ищу работу ассистентом")).eligible)
 
     def test_unknowns_can_be_hidden(self):
-        text = "Ищем удалённого ассистента. Частичная занятость."
+        text = "Ищем удалённого ассистента. Требуется опыт работы."
         self.assertTrue(classify(text).eligible)
         self.assertFalse(classify(text, replace(Profile(), include_unknown=False)).eligible)
 
     def test_score_threshold_is_inclusive(self):
-        profile = replace(Profile(), keywords=["Excel", "почта", "чат", "таблицы", "поддержка"])
-        for terms, score, eligible in [("Excel, почта, чат", 59, False),
-                                       ("Excel, почта, чат, таблицы", 60, True)]:
+        profile = replace(Profile(), min_score=64, keywords=["Excel", "почта", "чат", "таблицы", "поддержка"])
+        for terms, score, eligible in [("Excel, почта, чат", 63, False),
+                                       ("Excel, почта, чат, таблицы", 64, True),
+                                       ("Excel, почта, чат, таблицы, поддержка", 65, True)]:
             with self.subTest(score=score):
-                result = classify("Ищем удалённого ассистента. " + terms, profile)
+                result = classify("Ищем ассистента. Требуется опыт работы. " + terms, profile)
                 self.assertEqual(result.score, score)
                 self.assertEqual(result.eligible, eligible)
 
     def test_lower_profile_cannot_bypass_score_floor(self):
         profile = replace(Profile(), min_score=55, keywords=["Excel"])
-        result = classify("Ищем удалённого ассистента.", profile)
-        self.assertEqual(result.score, 56)
-        self.assertFalse(result.eligible)
-        self.assertEqual(result.verdict, "Ниже порога")
+        result = classify("Ищем ассистента. Требуется опыт работы.", profile)
+        self.assertEqual(result.score, 60)
+        self.assertTrue(result.eligible)
+        self.assertEqual(result.verdict, "Нужно уточнить")
 
     def test_higher_score_threshold_is_preserved(self):
         profile = update_profile(Profile(), "score 70")
-        result = classify("Ищем удалённого ассистента.", profile)
-        self.assertEqual(result.score, 61)
+        result = classify("Ищем ассистента. Требуется опыт работы.", profile)
+        self.assertEqual(result.score, 65)
         self.assertFalse(result.eligible)
 
     def test_configurable_criteria(self):
-        profile = update_profile(Profile(), "hours 2 8")
+        profile = Profile()
         self.assertTrue(classify(BASE.replace("4 часа", "8 часов"), profile).eligible)
         profile = update_profile(profile, "exclude ассистент")
         self.assertFalse(classify(BASE, profile).eligible)
@@ -168,7 +191,7 @@ class MatchingTests(unittest.TestCase):
         self.assertFalse(classify(BASE + " Обязанности: продажи.", profile).eligible)
 
     def test_roundup_keeps_requirements_separate(self):
-        post = "#вакансия\n" + BASE + "\n\n#вакансия\n" + BASE.replace("Без опыта", "Опыт 5 лет")
+        post = "#вакансия\n" + BASE + "\n\n#вакансия\n" + BASE.replace("Опыт 2 года", "Без опыта")
         parts = split_post(post)
         self.assertEqual(len(parts), 2)
         self.assertTrue(classify(parts[0]).eligible)

@@ -19,7 +19,7 @@ from vacancy_bot.professionals import PRO_GROUPS, pro_group_label
 
 
 ROOT = Path(__file__).resolve().parent.parent
-TEXT = "Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 50 000 ₽. Без опыта."
+TEXT = "Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 50 000 ₽. Опыт работы 2 года."
 SOURCE = dict(peer_id=-1000000000010, raw_id=10, kind="channel", access_hash=1,
               title="Вакансии", username="test_jobs", protected=False)
 
@@ -227,11 +227,15 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.read()
         await self.service.handle_command(self.command("/pro 2"))
         self.assertIn("Найдено: 12", self.bot.sent[-1])
+        first_page = self.bot.sent[-1]
         self.assertEqual(self.bot.sent[-1].count("Оригинал: "), 10)
         self.assertIn("Ещё: /pro 2 page 2", self.bot.sent[-1])
         self.assertNotIn("· маркетолог", self.bot.sent[-1])
         await self.service.handle_command(self.command("/pro 2 page 2"))
         self.assertEqual(self.bot.sent[-1].count("Оригинал: "), 2)
+        second_page = self.bot.sent[-1]
+        ids = [int(value) for value in re.findall(r"https://t.me/test_jobs/(\d+)", first_page + second_page)]
+        self.assertEqual(ids, list(range(12, 0, -1)))
         self.assertIn("Назад: /pro 2 page 1", self.bot.sent[-1])
         await self.service.handle_command(self.command("/pro 2 page 3"))
         self.assertIn("Страницы 3 нет", self.bot.sent[-1])
@@ -264,7 +268,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("· ассистент", self.bot.sent[-1])
         self.assertEqual(self.client.requests[-1]["limit"], self.service.config.history_limit)
         self.assertEqual(self.client.forwarded, [])
-        self.assertEqual(len(self.db.ranked(self.service.cutoff())), 1)
+        self.assertEqual(len(self.db.ranked(self.service.cutoff())), 2)
         self.db.set_setting("paused", "1")
         self.client.requests.clear()
         await self.service.handle_command(self.command("/proscan"))
@@ -272,7 +276,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client.requests, [])
 
     async def test_scan_score_forward_and_no_repeat(self):
-        self.client.messages = [message(1), message(2, TEXT.replace("Без опыта", "Опыт 5 лет"))]
+        self.client.messages = [message(1), message(2, TEXT.replace("Опыт работы 2 года", "Без опыта"))]
         await self.read()
         await self.service.drain()
         self.assertEqual(self.client.forwarded, [1])
@@ -296,17 +300,19 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_jobs_at_or_above_60_are_delivered(self):
         self.service.profile = replace(Profile(), keywords=["Excel", "почта", "чат", "таблицы", "поддержка"])
         self.service.profile.save(self.path / "profile.json")
-        self.client.messages = [message(1, "Ищем удалённого ассистента. Excel, почта, чат."),
-                                message(2, "Ищем удалённого ассистента. Excel, почта, чат, таблицы.")]
+        self.service.profile = replace(self.service.profile, min_score=64)
+        self.service.profile.save(self.path / "profile.json")
+        self.client.messages = [message(1, "Ищем ассистента. Требуется опыт работы. Excel, почта, чат."),
+                                message(2, "Ищем ассистента. Требуется опыт работы. Excel, почта, чат, таблицы.")]
         await self.read()
         await self.service.drain()
         self.assertEqual(self.client.forwarded, [2])
         self.assertEqual(len(self.bot.sent), 1)
-        self.assertIn("60/100", self.bot.sent[0])
-        self.assertEqual([row["score"] for row in self.db.ranked(self.service.cutoff())], [60])
+        self.assertIn("64/100", self.bot.sent[0])
+        self.assertEqual([row["score"] for row in self.db.ranked(self.service.cutoff())], [64])
 
     async def test_queued_jobs_are_rechecked_when_threshold_changes(self):
-        self.client.messages = [message(1, "Ищем удалённого ассистента.")]
+        self.client.messages = [message(1, "Ищем ассистента. Требуется опыт работы.")]
         await self.read()
         self.assertEqual(len(self.db.ranked(self.service.cutoff())), 1)
         replace(Profile(), min_score=70).save(self.path / "profile.json")
@@ -316,9 +322,9 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.ranked(self.service.cutoff()), [])
 
     async def test_show_cannot_deliver_job_below_60(self):
-        self.service.profile = replace(Profile(), keywords=["Excel"])
+        self.service.profile = replace(Profile(), min_score=70, keywords=["Excel"])
         self.service.profile.save(self.path / "profile.json")
-        self.client.messages = [message(1, "Ищем удалённого ассистента.")]
+        self.client.messages = [message(1, "Ищем ассистента. Требуется опыт работы.")]
         await self.read()
         row = self.db.recent(self.service.cutoff())[0]
         await self.service.handle_command(self.command(f"/show {row['id']}"))
@@ -328,10 +334,10 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.db.job(row["id"])["notified_at"])
 
     async def test_deliver_rejects_stale_eligible_row(self):
-        self.client.messages = [message(1, "Ищем удалённого ассистента.")]
+        self.client.messages = [message(1, "Ищем ассистента. Требуется опыт работы.")]
         await self.read()
         row = self.db.ranked(self.service.cutoff())[0]
-        self.service.profile = replace(Profile(), keywords=["Excel"])
+        self.service.profile = replace(Profile(), min_score=70, keywords=["Excel"])
         self.assertFalse(await self.service.deliver(row))
         self.assertEqual(self.client.forwarded, [])
         self.assertEqual(self.bot.sent, [])
@@ -380,12 +386,12 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("секретные письма", self.bot.sent[0])
 
     async def test_roundup_only_matching_part_sent(self):
-        self.client.messages = [message(1, "#вакансия\n" + TEXT + "\n\n#вакансия\n" + TEXT.replace("Без опыта", "Опыт 5 лет"))]
+        self.client.messages = [message(1, "#вакансия\n" + TEXT + "\n\n#вакансия\n" + TEXT.replace("Опыт работы 2 года", "Без опыта"))]
         await self.read()
         await self.service.drain()
         self.assertEqual(self.client.forwarded, [])
         self.assertEqual(len(self.bot.sent), 2)
-        self.assertNotIn("5 лет", self.bot.sent[1])
+        self.assertNotIn("Без опыта", self.bot.sent[1])
 
     async def test_foreign_and_forwarded_commands_ignored(self):
         await self.service.handle_command(self.command("/pause", user_id=222))
@@ -406,10 +412,10 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_criteria_update_rechecks_existing_posts(self):
         self.client.messages = [message(1, TEXT.replace("4 часа", "8 часов"))]
         await self.read()
-        self.assertEqual(self.db.ranked(self.service.cutoff()), [])
+        self.assertEqual(len(self.db.ranked(self.service.cutoff())), 1)
         await self.service.handle_command(self.command("/set hours 2 8"))
         self.assertEqual(len(self.db.ranked(self.service.cutoff())), 1)
-        self.assertEqual(Profile.load(self.path / "profile.json").hours_max, 8)
+        self.assertIn("больше не используются", self.bot.sent[-1])
 
     async def test_salary_command_rechecks_and_delivers_high_salary(self):
         self.service.profile = replace(Profile(), salary_min=200000)
@@ -457,7 +463,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_changed_profile_applies_after_restart(self):
         self.client.messages = [message(1, TEXT.replace("4 часа", "8 часов"))]
         await self.read()
-        replace(Profile(), hours_max=8).save(self.path / "profile.json")
+        Profile().save(self.path / "profile.json")
         Service(self.client, self.bot, self.db, Config(api_id=1, api_hash="x", owner=111))
         self.assertEqual(len(self.db.ranked(self.service.cutoff())), 1)
 
@@ -520,7 +526,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_categories_browse_all_groups_and_only_eligible_jobs(self):
         roles = ["SMM Manager", "Online Chat Support Specialist", "Junior Project Manager", "Data Entry Specialist"]
         self.client.messages = [message(index, TEXT.replace("ассистент", role)) for index, role in enumerate(roles, 1)]
-        self.client.messages.append(message(5, TEXT.replace("ассистент", "Data Entry Specialist").replace("4 часа", "8 часов")))
+        self.client.messages.append(message(5, TEXT.replace("ассистент", "Data Entry Specialist").replace("Опыт работы 2 года", "Без опыта")))
         await self.read()
         await self.service.handle_command(self.command("/jobs"))
         for group in range(1, 5):
@@ -606,7 +612,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(len(output.encode("utf-16-le")), 7600)
 
     async def test_card_omits_unknown_metadata(self):
-        self.client.messages = [message(1, "Ищем удалённого ассистента.")]
+        self.client.messages = [message(1, "Ищем удалённого ассистента. Требуется опыт работы.")]
         await self.read()
         output = card(self.db.ranked(self.service.cutoff())[0])
         for field in ("Компания:", "Оплата:", "Локация:", "Занятость:", "Требования:"):
@@ -676,7 +682,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_plain_hr_username_and_link_show_all_roles_without_notifying(self):
         self.client.messages = [message(1, TEXT + "\nКонтакты: @test_hr"),
-                                message(2, TEXT.replace("ассистент", "дизайнер").replace("4 часа", "8 часов") + "\nКонтакты: @test_hr"),
+                                message(2, TEXT.replace("ассистент", "дизайнер").replace("Опыт работы 2 года", "Без опыта") + "\nКонтакты: @test_hr"),
                                 message(3, TEXT + "\nКонтакты: @test_hr_extra")]
         await self.read()
         pending = len(self.db.ranked(self.service.cutoff(), pending=True))

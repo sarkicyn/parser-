@@ -39,7 +39,7 @@ class ResponseCase(unittest.TestCase):
     def job(self, title="копирайтер", *, hr="test_hr", days=10, protected=False, text=None, part=0, message_id=None):
         self.counter += 1
         number = message_id or self.counter
-        text = text or f"Вакансия: {title}. Офис, 8 часов в день. Опыт 5 лет. Контакт: @{hr}"
+        text = text or f"Вакансия: {title}. Работа в офисе, 8 часов в день. Опыт 5 лет. Контакт: @{hr}"
         self.db.save_job(peer_id=-100123, message_id=number, part_index=part, part_count=part + 1,
                          text=text, source_title="jobs", link=f"https://t.me/jobs/{number}",
                          published_at=(NOW - timedelta(days=days)).isoformat(), protected=protected,

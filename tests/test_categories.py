@@ -7,7 +7,7 @@ from vacancy_bot.matcher import classify, split_post
 from vacancy_bot.profile import Profile
 
 
-CONDITIONS = "\nУдалённо, 4 часа в день. Оклад 50 000 ₽. Без опыта."
+CONDITIONS = "\nУдалённо, 4 часа в день. Оклад 50 000 ₽. Требуется опыт работы 2 года."
 
 
 def vacancy(title, duties=""):
@@ -91,7 +91,7 @@ class CategoryTests(unittest.TestCase):
 
     def test_group_four_does_not_bypass_any_eligibility_filter(self):
         base = vacancy("Data Entry Specialist")
-        rejected = [base.replace("4 часа", "8 часов"), base.replace("Без опыта", "Опыт 5 лет"),
+        rejected = [base.replace("Требуется опыт работы 2 года", "Без опыта"),
                     base.replace("Удалённо", "Работа в офисе"), base.replace("50 000", "30 000")]
         for text in rejected:
             with self.subTest(text=text), patch("vacancy_bot.matcher.categorize") as categorize_mock:

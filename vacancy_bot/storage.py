@@ -249,14 +249,13 @@ class Storage:
         parameters.append(limit)
         return self.db.execute("""WITH candidates AS (
             SELECT jobs.*,row_number() OVER(PARTITION BY jobs.dedup_key
-                ORDER BY jobs.notified_at IS NOT NULL DESC,jobs.card_sent DESC,
-                         jobs.score DESC,jobs.published_at DESC,jobs.id) AS occurrence
+                ORDER BY jobs.published_at DESC,jobs.id DESC) AS occurrence
             FROM jobs JOIN sources USING(peer_id)
             WHERE jobs.peer_id<0 AND jobs.eligible=1 AND jobs.published_at>=? AND sources.active=1
         """ + (" AND NOT EXISTS(SELECT 1 FROM job_deliveries d WHERE d.dedup_key=jobs.dedup_key AND d.notified_at IS NOT NULL)"
                if pending else "") + category_filter + """
             ) SELECT * FROM candidates WHERE occurrence=1
-            ORDER BY score DESC,published_at DESC LIMIT ?
+            ORDER BY published_at DESC,id DESC LIMIT ?
         """, parameters).fetchall()
 
     def jobs_by_contact(self, contact: str, cutoff: str | None = None):

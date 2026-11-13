@@ -9,7 +9,7 @@ from vacancy_bot.matcher import classify
 from vacancy_bot.storage import Storage
 
 
-TEXT = "Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 50 000 ₽. Без опыта."
+TEXT = "Вакансия: ассистент. Удалённо, 4 часа в день. Оклад 50 000 ₽. Опыт работы 2 года."
 SOURCE = dict(peer_id=-1000000000010, raw_id=10, kind="channel", access_hash=1,
               title="TG", username="test_jobs", protected=False)
 POST = TEXT + "\nЗадачи: вести таблицы учеников; отвечать на письма клиентов.\nКонтакты: @test_hr"
@@ -40,6 +40,15 @@ class StorageTestCase(unittest.TestCase):
 
 
 class StorageDedupTests(StorageTestCase):
+
+    def test_newest_results_precede_higher_scored_older_results_and_limit(self):
+        older = self.save(1, text=TEXT.replace("ассистент", "Data Entry Specialist"), days_ago=1)
+        newer = self.save(2, text=TEXT.replace("ассистент", "бухгалтер").replace("Оклад 50 000 ₽.", ""))
+        self.assertGreater(older["score"], newer["score"])
+        rows = self.db.ranked(self.cutoff, limit=1)
+        self.assertEqual([row["id"] for row in rows], [newer["id"]])
+        rows = self.db.ranked(self.cutoff, category=4)
+        self.assertEqual([row["id"] for row in rows], [newer["id"], older["id"]])
 
     def test_fresh_active_copy_is_visible_when_first_copy_is_old_and_inactive(self):
         first = self.save(1, days_ago=4)
@@ -154,7 +163,7 @@ class StorageMigrationTests(unittest.TestCase):
 class ContactStorageTests(StorageTestCase):
     def test_lookup_includes_distinct_roles_and_rejected_vacancies(self):
         first = self.save(1)
-        second = self.save(2, POST.replace("ассистент", "дизайнер").replace("4 часа", "8 часов"))
+        second = self.save(2, POST.replace("ассистент", "дизайнер").replace("Опыт работы 2 года", "Без опыта"))
         self.save(3, POST.replace("@test_hr", "@test_hr_extra"))
         self.assertFalse(second["eligible"])
         rows = self.db.jobs_by_contact("tg:test_hr", self.cutoff)
